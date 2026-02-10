@@ -180,6 +180,12 @@ class MangaBuffApp:
         print_success("Карточка для вклада:")
         print(f"   {format_card_info(boost_card)}")
         
+        # 🔧 ДОБАВЛЯЕМ ЛОГИРОВАНИЕ ПЕРЕД ПРОВЕРКОЙ
+        self.logger.info("="*70)
+        self.logger.info("ПРОВЕРКА АВТОЗАМЕНЫ ПРИ ЗАГРУЗКЕ КАРТЫ")
+        self.logger.info(f"Карта: {boost_card.get('name')} (ID: {boost_card.get('card_id')})")
+        self.logger.info(f"Владельцев: {boost_card.get('owners_count')}, Желающих: {boost_card.get('wanters_count')}")
+        
         # Проверяем новые условия автозамены
         new_card = check_and_replace_if_needed(
             self.session,
@@ -475,15 +481,20 @@ class MangaBuffApp:
                     self.failed_cycles_count = 0
                     self.logger.info("Продолжаем работу с текущей картой")
                     print_info("ℹ️  Продолжаем работу с текущей картой")
-            
+
             # Проверяем новые условия автозамены
+            self.logger.info("="*70)
+            self.logger.info("ПРОВЕРКА АВТОЗАМЕНЫ В ЦИКЛЕ")
+            self.logger.info(f"Карта: {current_boost_card.get('name')} (ID: {current_boost_card.get('card_id')})")
+            self.logger.info(f"Владельцев: {current_boost_card.get('owners_count')}, Желающих: {current_boost_card.get('wanters_count')}")
+
             new_card = check_and_replace_if_needed(
                 self.session,
                 self.args.boost_url,
                 current_boost_card,
                 self.stats_manager
             )
-            
+
             if new_card:
                 self.logger.info(f"Карта заменена автоматически: {new_card.get('card_id')}")
                 current_boost_card = new_card

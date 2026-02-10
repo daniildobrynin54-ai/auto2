@@ -1,0 +1,29 @@
+{
+  "216955": {
+    "card_id": 216955,
+    "name": "Сома",
+    "rank": "E",
+    "wanters_count": 17,
+    "timestamp": 1770758927.9655392,
+    "cached_at": "2026-02-10T23:28:47.965541",
+    "instance_id": 410170618
+  },
+  "4046": {
+    "card_id": 4046,
+    "name": "Служанка",
+    "rank": "E",
+    "wanters_count": 3,
+    "timestamp": 1770758930.290631,
+    "cached_at": "2026-02-10T23:28:50.290633",
+    "instance_id": 268700321
+  },
+  "210927": {
+    "card_id": 210927,
+    "name": "Дворец",
+    "rank": "E",
+    "wanters_count": 12,
+    "timestamp": 1770758942.5939343,
+    "cached_at": "2026-02-10T23:29:02.593936",
+    "instance_id": 409285459
+  }
+}
