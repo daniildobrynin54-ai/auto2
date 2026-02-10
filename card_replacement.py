@@ -31,84 +31,83 @@ class CardReplacementManager:
         self.boost_url = boost_url
         self.stats_manager = stats_manager
     
+
     def should_replace_card(self, boost_card: dict) -> bool:
         """
         Проверяет, нужно ли заменить карту по новым условиям.
-        
-        Условия замены:
-        1. 0-108 владельцев = ВСЕГДА автозамена
-        2. 109-216 владельцев при 121+ желающих = автозамена
-        3. 217-360 владельцев при 181+ желающих = автозамена
-        4. 361-540 владельцев при 300+ желающих = автозамена
-        
-        Args:
-            boost_card: Текущая карта
-        
-        Returns:
-            True если нужна замена
         """
         owners_count = boost_card.get('owners_count', 0)
         wanters_count = boost_card.get('wanters_count', 0)
         
+        # 🔧 ДОБАВЛЯЕМ ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ
+        print_section("🔍 ПРОВЕРКА УСЛОВИЙ АВТОЗАМЕНЫ", char="-")
+        print(f"   Владельцев: {owners_count} (тип: {type(owners_count).__name__})")
+        print(f"   Желающих: {wanters_count} (тип: {type(wanters_count).__name__})")
+        print(f"   Card ID: {boost_card.get('card_id')}")
+        print(f"   Название: {boost_card.get('name', 'Неизвестно')}")
+        print()
+        
         if owners_count <= 0:
-            print_info("Нет данных о владельцах карты")
+            print_info("❌ Нет данных о владельцах карты (owners_count <= 0)")
+            print("-" * 60 + "\n")
             return False
         
         # Условие 1: 0-108 владельцев = ВСЕГДА автозамена
-        if 0 < owners_count <= 108:
-            print_warning(f"⚠️  Владельцев {owners_count} <= 108 - требуется замена!")
+        condition1 = 0 < owners_count <= 108
+        print(f"   Условие 1 (0 < {owners_count} <= 108): {condition1}")
+        if condition1:
+            print_warning(f"✅ ЗАМЕНА! Владельцев {owners_count} <= 108")
+            print("-" * 60 + "\n")
             return True
         
         # Условие 2: 109-216 владельцев при 121+ желающих
-        if 109 <= owners_count <= 216:
-            if wanters_count >= 121:
-                print_warning(
-                    f"⚠️  Владельцев {owners_count}, желающих {wanters_count} >= 121 "
-                    f"- требуется замена!"
-                )
+        condition2_range = 109 <= owners_count <= 216
+        condition2_wanters = wanters_count >= 121
+        print(f"   Условие 2 (109 <= {owners_count} <= 216): {condition2_range}")
+        if condition2_range:
+            print(f"      └─ Желающих {wanters_count} >= 121: {condition2_wanters}")
+            if condition2_wanters:
+                print_warning(f"✅ ЗАМЕНА! Владельцев {owners_count}, желающих {wanters_count} >= 121")
+                print("-" * 60 + "\n")
                 return True
             else:
-                print_info(
-                    f"Владельцев {owners_count}, желающих {wanters_count} < 121 "
-                    f"- замена не требуется"
-                )
+                print_info(f"❌ НЕТ ЗАМЕНЫ. Желающих {wanters_count} < 121")
+                print("-" * 60 + "\n")
                 return False
         
         # Условие 3: 217-360 владельцев при 181+ желающих
-        if 217 <= owners_count <= 360:
-            if wanters_count >= 181:
-                print_warning(
-                    f"⚠️  Владельцев {owners_count}, желающих {wanters_count} >= 181 "
-                    f"- требуется замена!"
-                )
+        condition3_range = 217 <= owners_count <= 360
+        condition3_wanters = wanters_count >= 181
+        print(f"   Условие 3 (217 <= {owners_count} <= 360): {condition3_range}")
+        if condition3_range:
+            print(f"      └─ Желающих {wanters_count} >= 181: {condition3_wanters}")
+            if condition3_wanters:
+                print_warning(f"✅ ЗАМЕНА! Владельцев {owners_count}, желающих {wanters_count} >= 181")
+                print("-" * 60 + "\n")
                 return True
             else:
-                print_info(
-                    f"Владельцев {owners_count}, желающих {wanters_count} < 181 "
-                    f"- замена не требуется"
-                )
+                print_info(f"❌ НЕТ ЗАМЕНЫ. Желающих {wanters_count} < 181")
+                print("-" * 60 + "\n")
                 return False
         
-        # 🔧 НОВОЕ: Условие 4: 361-540 владельцев при 300+ желающих
-        if 361 <= owners_count <= 540:
-            if wanters_count >= 300:
-                print_warning(
-                    f"⚠️  Владельцев {owners_count}, желающих {wanters_count} >= 300 "
-                    f"- требуется замена!"
-                )
+        # Условие 4: 361-540 владельцев при 300+ желающих
+        condition4_range = 361 <= owners_count <= 540
+        condition4_wanters = wanters_count >= 300
+        print(f"   Условие 4 (361 <= {owners_count} <= 540): {condition4_range}")
+        if condition4_range:
+            print(f"      └─ Желающих {wanters_count} >= 300: {condition4_wanters}")
+            if condition4_wanters:
+                print_warning(f"✅ ЗАМЕНА! Владельцев {owners_count}, желающих {wanters_count} >= 300")
+                print("-" * 60 + "\n")
                 return True
             else:
-                print_info(
-                    f"Владельцев {owners_count}, желающих {wanters_count} < 300 "
-                    f"- замена не требуется"
-                )
+                print_info(f"❌ НЕТ ЗАМЕНЫ. Желающих {wanters_count} < 300")
+                print("-" * 60 + "\n")
                 return False
         
         # Все остальные случаи - замена не требуется
-        print_info(
-            f"Владельцев {owners_count}, желающих {wanters_count} "
-            f"- замена не требуется (не попадает под условия)"
-        )
+        print_info(f"❌ НЕТ ЗАМЕНЫ. Владельцев {owners_count} не попадает под условия (>540)")
+        print("-" * 60 + "\n")
         return False
     
     def can_replace(self) -> bool:
