@@ -321,6 +321,7 @@ class MangaBuffApp:
             print_error("Нет менеджера статистики!")
             return False
         
+        # Показываем начальную информацию
         seconds_until_reset = self.stats_manager._seconds_until_reset()
         reset_time_formatted = self.stats_manager._format_time_until_reset()
         
@@ -329,22 +330,43 @@ class MangaBuffApp:
         print(f"💤 Переход в режим ожидания...")
         print("   Нажмите Ctrl+C для завершения\n")
         
-        # Ожидание с периодическими обновлениями
+        # Ожидание с периодическими обновлениями и проверкой реального времени
         check_interval = 60  # Проверяем каждую минуту
-        elapsed = 0
+        last_print_time = time.time()
         
-        while elapsed < seconds_until_reset:
-            remaining = seconds_until_reset - elapsed
-            hours = remaining // 3600
-            minutes = (remaining % 3600) // 60
-            
-            if minutes % 10 == 0 or remaining < 600:  # Выводим каждые 10 минут или в последние 10 минут
-                self.logger.debug(f"Режим сна: осталось {hours}ч {minutes}м")
-                print(f"💤 Режим сна: осталось {hours}ч {minutes}м до сброса")
-            
-            sleep_time = min(check_interval, remaining)
-            time.sleep(sleep_time)
-            elapsed += sleep_time
+        try:
+            while True:
+                # 🔧 ИСПРАВЛЕНО: Получаем актуальное время до сброса в каждой итерации
+                seconds_remaining = self.stats_manager._seconds_until_reset()
+                
+                # Проверяем - может уже пора просыпаться?
+                if seconds_remaining <= 0:
+                    self.logger.info("Время сброса наступило!")
+                    print("\n✅ Время сброса наступило!")
+                    # Даем серверу время обновиться (30 секунд после полуночи)
+                    self.logger.info("Ожидание 30 секунд для обновления сервера...")
+                    print("⏳ Ожидание 30 секунд для обновления сервера...")
+                    time.sleep(30)
+                    break
+                
+                # Периодический вывод статуса
+                current_time = time.time()
+                if current_time - last_print_time >= 600 or seconds_remaining < 600:  # Каждые 10 минут или в последние 10 минут
+                    hours = seconds_remaining // 3600
+                    minutes = (seconds_remaining % 3600) // 60
+                    self.logger.debug(f"Режим сна: осталось {hours}ч {minutes}м")
+                    print(f"💤 Режим сна: осталось {hours}ч {minutes}м до сброса")
+                    last_print_time = current_time
+                
+                # Спим до следующей проверки (но не больше чем осталось до сброса)
+                sleep_time = min(check_interval, seconds_remaining)
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+        
+        except KeyboardInterrupt:
+            self.logger.warning("Прерывание режима сна пользователем")
+            print("\n\n⚠️  Режим сна прерван пользователем")
+            return False
         
         self.logger.info("Смена суток! Повторный вход в аккаунт...")
         print_success("\n✅ Смена суток! Повторный вход в аккаунт...")
@@ -766,4 +788,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
