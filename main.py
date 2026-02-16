@@ -12,7 +12,7 @@ from config import (
     HISTORY_CHECK_INTERVAL
 )
 from logger import setup_logging, get_logger
-from auth import login, logout
+from auth import login, logout, is_authenticated, refresh_session_token
 from inventory import get_user_inventory, InventoryManager
 from boost import get_boost_card_info
 from card_selector import select_trade_card
@@ -220,6 +220,74 @@ class MangaBuffApp:
         self.monitor.current_card_id = boost_card['card_id']
         self.logger.info(f"Монитор запущен для карты ID: {boost_card['card_id']}")
     
+    def recreate_all_objects(self) -> bool:
+        """
+        🔧 НОВОЕ: Универсальный метод пересоздания всех объектов.
+        """
+        try:
+            self.logger.info("=" * 70)
+            self.logger.info("ПЕРЕСОЗДАНИЕ ВСЕХ ОБЪЕКТОВ С НОВОЙ СЕССИЕЙ")
+            
+            # 1. Менеджер статистики
+            if self.args.boost_url:
+                print("📊 Пересоздание менеджера статистики...")
+                self.stats_manager = create_stats_manager(self.session, self.args.boost_url)
+                self.stats_manager.print_stats(force_refresh=True)
+            
+            # 2. Монитор истории
+            if not self.args.skip_inventory:
+                print("📊 Пересоздание монитора истории...")
+                if self.history_monitor and self.history_monitor.running:
+                    self.history_monitor.stop()
+                self.init_history_monitor()
+            
+            # 3. Процессор
+            print("🔄 Пересоздание процессора...")
+            self.processor = OwnersProcessor(
+                session=self.session,
+                select_card_func=select_trade_card,
+                send_trade_func=send_trade_to_owner,
+                dry_run=self.args.dry_run,
+                debug=self.args.debug
+            )
+            
+            # 4. Монитор буста
+            if self.args.enable_monitor and self.args.boost_url:
+                print("🔄 Пересоздание монитора буста...")
+                if self.monitor and self.monitor.is_running():
+                    self.monitor.stop()
+                boost_card = self.load_boost_card()
+                if boost_card:
+                    self.start_monitoring(boost_card)
+            
+            print_success("✅ Все объекты обновлены\n")
+            return True
+        except Exception as e:
+            self.logger.exception(f"Ошибка: {e}")
+            return False
+
+    def check_and_refresh_session(self) -> bool:
+        """🔧 НОВОЕ: Проверяет валидность сессии."""
+        if not is_authenticated(self.session):
+            print_error("❌ Сессия истекла!")
+            
+            # Попытка обновить токен
+            if refresh_session_token(self.session):
+                if is_authenticated(self.session):
+                    print_success("✅ Сессия восстановлена")
+                    return True
+            
+            # Полный повторный вход
+            print_warning("Повторный вход...")
+            self.session = login(self.args.email, self.args.password, self.proxy_manager)
+            
+            if not self.session:
+                return False
+            
+            return self.recreate_all_objects()
+        
+        return True
+
     def wait_for_boost_or_timeout(
         self,
         card_id: int,
@@ -298,11 +366,13 @@ class MangaBuffApp:
             self.logger.info("Остановка монитора буста...")
             print("🛑 Остановка монитора буста...")
             self.monitor.stop()
+            self.monitor = None  # 🔧 НОВОЕ: Очищаем ссылку
         
         if self.history_monitor and self.history_monitor.running:
             self.logger.info("Остановка монитора истории...")
             print("🛑 Остановка монитора истории...")
             self.history_monitor.stop()
+            self.history_monitor = None  # 🔧 НОВОЕ: Очищаем ссылку
         
         # Выход из аккаунта
         self.logger.info("Выход из аккаунта...")
@@ -346,7 +416,13 @@ class MangaBuffApp:
             time.sleep(sleep_time)
             elapsed += sleep_time
         
-        self.logger.info("Смена суток! Повторный вход в аккаунт...")
+        # ═══════════════════════════════════════════════════════════════════
+        # 🔧 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ НАЧИНАЕТСЯ ЗДЕСЬ
+        # ═══════════════════════════════════════════════════════════════════
+        
+        self.logger.info("=" * 70)
+        self.logger.info("СМЕНА СУТОК - ПОВТОРНЫЙ ВХОД")
+        self.logger.info("=" * 70)
         print_success("\n✅ Смена суток! Повторный вход в аккаунт...")
         
         # Повторный вход
@@ -357,48 +433,33 @@ class MangaBuffApp:
         )
         
         if not self.session:
-            self.logger.error("Не удалось войти в аккаунт после режима сна")
+            self.logger.error("❌ Не удалось войти в аккаунт после режима сна")
             print_error("❌ Не удалось войти в аккаунт!")
             return False
         
-        self.logger.info("Авторизация после режима сна успешна")
+        self.logger.info("✅ Авторизация после режима сна успешна")
         print_success("✅ Авторизация успешна!")
         
-        # Перезапускаем менеджеры
-        if self.args.boost_url:
-            self.logger.info("Инициализация менеджера статистики после сна...")
-            print("\n📊 Инициализация менеджера статистики...")
-            self.stats_manager = create_stats_manager(
-                self.session,
-                self.args.boost_url
-            )
-            self.stats_manager.print_stats(force_refresh=True)
+        # 🔧 КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: ВСЕГДА пересоздаем ВСЕ объекты
+        self.logger.info("Пересоздание всех объектов после режима сна...")
+        print("\n" + "=" * 70)
+        print("ПЕРЕСОЗДАНИЕ ВСЕХ ОБЪЕКТОВ С НОВОЙ СЕССИЕЙ")
+        print("=" * 70 + "\n")
         
-        if not self.args.skip_inventory:
-            self.init_history_monitor()
+        if not self.recreate_all_objects():
+            self.logger.error("❌ Не удалось пересоздать объекты после сна")
+            print_error("❌ Ошибка пересоздания объектов")
+            return False
         
-        # 🔧 ИСПРАВЛЕНИЕ: Полностью пересоздаем процессор с новой сессией
-        if self.processor:
-            self.logger.debug("🔄 Пересоздание процессора с новой сессией...")
-            print("🔄 Обновление процессора...")
-            
-            # Импортируем OwnersProcessor
-            from owners_parser import OwnersProcessor
-            
-            # Создаем новый процессор с новой сессией
-            self.processor = OwnersProcessor(
-                session=self.session,
-                select_card_func=select_trade_card,
-                send_trade_func=send_trade_to_owner,
-                dry_run=self.args.dry_run,
-                debug=self.args.debug
-            )
-            
-            self.logger.info("✅ Процессор пересоздан с новой сессией")
-            print_success("✅ Процессор обновлен\n")
+        # Сбрасываем счетчик неудачных циклов
+        self.failed_cycles_count = 0
+        self.logger.info("Счетчик неудачных циклов сброшен")
         
-        self.logger.info("Система полностью перезапущена после режима сна")
+        self.logger.info("=" * 70)
+        self.logger.info("✅ СИСТЕМА ПОЛНОСТЬЮ ПЕРЕЗАПУЩЕНА")
+        self.logger.info("=" * 70)
         print_success("✅ Система полностью перезапущена!\n")
+        
         return True
     
     def attempt_auto_replacement(self, current_boost_card: dict, reason: str = "АВТОЗАМЕНА ПОСЛЕ 3 НЕУДАЧНЫХ ЦИКЛОВ") -> Optional[dict]:

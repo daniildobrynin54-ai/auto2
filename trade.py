@@ -307,6 +307,11 @@ class TradeManager:
         self.sent_trades: Set[tuple[int, int]] = set()
         self.limiter = get_rate_limiter()
         self.locked_cards: Set[int] = set()
+        
+        # 🔧 НОВОЕ: Проверяем и обновляем токен при создании
+        if not self._get_csrf_token():
+            self._log("⚠️  CSRF токен отсутствует при создании TradeManager")
+            self._refresh_csrf_token()
     
     def _log(self, message: str) -> None:
         if self.debug:

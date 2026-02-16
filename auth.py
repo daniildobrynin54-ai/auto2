@@ -1,4 +1,4 @@
-"""Модуль авторизации с поддержкой прокси."""
+"""Модуль авторизации с поддержкой прокси и обновления токенов."""
 
 from typing import Optional
 import requests
@@ -139,6 +139,74 @@ def login(
         return None
 
 
+def refresh_session_token(session: requests.Session) -> bool:
+    """
+    🔧 НОВОЕ: Обновляет CSRF токен в существующей сессии.
+    
+    Args:
+        session: Существующая сессия
+    
+    Returns:
+        True если успешно
+    """
+    try:
+        print("🔄 Обновление CSRF токена...")
+        
+        response = session.get(f"{BASE_URL}/trades/offers", timeout=REQUEST_TIMEOUT)
+        
+        if response.status_code != 200:
+            print(f"⚠️  Не удалось загрузить страницу: {response.status_code}")
+            return False
+        
+        soup = BeautifulSoup(response.text, "html.parser")
+        
+        # Ищем токен в meta теге
+        token_meta = soup.select_one('meta[name="csrf-token"]')
+        if token_meta:
+            token = token_meta.get("content", "").strip()
+            if token:
+                # Обновляем заголовки сессии
+                if isinstance(session, RateLimitedSession):
+                    session._session.headers.update({
+                        "X-CSRF-TOKEN": token,
+                        "X-Requested-With": "XMLHttpRequest"
+                    })
+                else:
+                    session.headers.update({
+                        "X-CSRF-TOKEN": token,
+                        "X-Requested-With": "XMLHttpRequest"
+                    })
+                
+                print(f"✅ CSRF токен обновлен: {token[:10]}...")
+                return True
+        
+        # Пробуем найти в input поле
+        token_input = soup.find("input", {"name": "_token"})
+        if token_input:
+            token = token_input.get("value", "").strip()
+            if token:
+                if isinstance(session, RateLimitedSession):
+                    session._session.headers.update({
+                        "X-CSRF-TOKEN": token,
+                        "X-Requested-With": "XMLHttpRequest"
+                    })
+                else:
+                    session.headers.update({
+                        "X-CSRF-TOKEN": token,
+                        "X-Requested-With": "XMLHttpRequest"
+                    })
+                
+                print(f"✅ CSRF токен обновлен: {token[:10]}...")
+                return True
+        
+        print("⚠️  Не удалось найти CSRF токен на странице")
+        return False
+        
+    except Exception as e:
+        print(f"❌ Ошибка обновления токена: {e}")
+        return False
+
+
 def logout(session: requests.Session) -> bool:
     """
     Выполняет выход из аккаунта.
@@ -160,10 +228,15 @@ def logout(session: requests.Session) -> bool:
             session.cookies.clear()
         
         # Удаляем CSRF токен из заголовков
-        if "X-CSRF-TOKEN" in session.headers:
-            del session.headers["X-CSRF-TOKEN"]
-        if "X-Requested-With" in session.headers:
-            del session.headers["X-Requested-With"]
+        headers_to_delete = ["X-CSRF-TOKEN", "X-Requested-With"]
+        
+        for header in headers_to_delete:
+            if isinstance(session, RateLimitedSession):
+                if header in session._session.headers:
+                    del session._session.headers[header]
+            else:
+                if header in session.headers:
+                    del session.headers[header]
         
         return True
         
@@ -192,4 +265,3 @@ def is_authenticated(session: requests.Session) -> bool:
         return "mangabuff_session" in session._session.cookies
     else:
         return "mangabuff_session" in session.cookies
-    
