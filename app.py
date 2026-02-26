@@ -23,6 +23,7 @@ from utils import (
     ensure_dir_exists,
     save_json,
     format_card_info,
+    extract_card_data,
     print_success,
     print_error,
     print_warning
@@ -35,6 +36,7 @@ class MangaBuffApp(SessionMixin, ProcessingMixin):
     """Главное приложение MangaBuff v2.8.1."""
 
     MAX_FAILED_CYCLES = 3
+    ALLOWED_RANKS = {"E", "D", "C"}  # Только эти ранги берём в работу
 
     def __init__(self, args):
         self.args = args
@@ -130,7 +132,29 @@ class MangaBuffApp(SessionMixin, ProcessingMixin):
             return []
 
         print(f"   🔍 Фильтрация: только ранги E, D, C | без заблокированных карт")
-        inventory = get_user_inventory(self.session, self.args.user_id)
+        raw_inventory = get_user_inventory(self.session, self.args.user_id)
+        self.logger.info(f"Загружено карточек с сервера (без фильтра): {len(raw_inventory)}")
+
+        # ── Реальная фильтрация по рангу ─────────────────────────────────────
+        inventory = []
+        skipped_ranks = {}
+        for card in raw_inventory:
+            card_data = extract_card_data(card)
+            if card_data and card_data["rank"] in self.ALLOWED_RANKS:
+                inventory.append(card)
+            else:
+                rank = card_data["rank"] if card_data else "?"
+                skipped_ranks[rank] = skipped_ranks.get(rank, 0) + 1
+
+        skipped_total = len(raw_inventory) - len(inventory)
+        self.logger.info(
+            f"После фильтрации: {len(inventory)} карт. "
+            f"Пропущено {skipped_total}: {skipped_ranks}"
+        )
+        if skipped_ranks:
+            print(f"   ⏭️  Пропущено рангов: {skipped_ranks}")
+        # ─────────────────────────────────────────────────────────────────────
+
         print_success(f"После фильтрации: {len(inventory)} карточек")
 
         self.logger.info(f"Загружено карточек: {len(inventory)}")
