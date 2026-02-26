@@ -6,7 +6,7 @@ from typing import Optional
 from auth import login, logout, is_authenticated, refresh_session_token
 from owners_parser import OwnersProcessor
 from trade import cancel_all_sent_trades
-from card_selector import select_trade_card
+from card_selector import select_trade_card, parse_all_unparsed_cards
 from trade import send_trade_to_owner
 from daily_stats import create_stats_manager
 from utils import print_success, print_error, print_warning, print_section
@@ -38,7 +38,7 @@ class SessionMixin:
                 select_card_func=select_trade_card,
                 send_trade_func=send_trade_to_owner,
                 dry_run=self.args.dry_run,
-                debug=self.args.debug
+                debug=self.args.debug,
             )
 
             if self.args.enable_monitor and self.args.boost_url:
@@ -75,6 +75,43 @@ class SessionMixin:
 
         return True
 
+    def _parse_inventory_before_sleep(self) -> None:
+        """
+        Парсит все непропарсенные карты инвентаря перед уходом в сон.
+
+        Вызывается пока сессия ещё активна — после отмены обменов,
+        но до logout. Результат сохраняется в parsed_inventory.json
+        и будет использован сразу после пробуждения.
+        """
+        if self.args.skip_inventory:
+            self.logger.info("Парсинг инвентаря пропущен (--skip_inventory)")
+            return
+
+        self.logger.info("=" * 70)
+        self.logger.info("ПАРСИНГ НЕПРОПАРСЕННЫХ КАРТ ПЕРЕД СНОМ")
+        self.logger.info("=" * 70)
+
+        print_section("📋 ПАРСИНГ ИНВЕНТАРЯ ПЕРЕД СНОМ", char="=")
+        print("   Парсим оставшиеся карты пока сессия активна...")
+        print("   (результат будет готов к следующему запуску)\n")
+
+        try:
+            stats = parse_all_unparsed_cards(
+                session=self.session,
+                output_dir=self.output_dir,
+                save_interval=10,
+            )
+            self.logger.info(
+                f"Парсинг завершён: "
+                f"пропарсено={stats['parsed']}, "
+                f"пропущено={stats['skipped']}, "
+                f"ошибок={stats['errors']}, "
+                f"всего={stats['total']}"
+            )
+        except Exception as e:
+            self.logger.exception(f"Ошибка при парсинге инвентаря перед сном: {e}")
+            print_warning(f"⚠️  Ошибка парсинга: {e}")
+
     def sleep_until_reset(self) -> bool:
         """Режим сна до смены суток (00:00 MSK)."""
         self.logger.info("Переход в режим сна (лимиты исчерпаны)")
@@ -82,6 +119,7 @@ class SessionMixin:
         print("   ⛔ Вклады на сегодня исчерпаны")
         print("   💤 Выход из аккаунта и ожидание смены суток...\n")
 
+        # 1. Отменяем все обмены
         if not self.args.dry_run and self.processor and self.processor.trade_manager:
             self.logger.info("Отмена всех обменов перед выходом...")
             print("🔄 Отменяем все обмены перед выходом...")
@@ -89,12 +127,16 @@ class SessionMixin:
                 self.session,
                 self.processor.trade_manager,
                 self.history_monitor,
-                self.args.debug
+                self.args.debug,
             )
             if success:
                 self.logger.info("Обмены успешно отменены")
                 print_success("✅ Обмены отменены\n")
 
+        # 2. Парсим весь непропарсенный инвентарь пока сессия жива
+        self._parse_inventory_before_sleep()
+
+        # 3. Останавливаем мониторы
         if self.monitor and self.monitor.is_running():
             self.logger.info("Остановка монитора буста...")
             print("🛑 Остановка монитора буста...")
@@ -107,6 +149,7 @@ class SessionMixin:
             self.history_monitor.stop()
             self.history_monitor = None
 
+        # 4. Выходим из аккаунта
         self.logger.info("Выход из аккаунта...")
         print("\n🚪 Выход из аккаунта...")
         if logout(self.session):
@@ -121,12 +164,12 @@ class SessionMixin:
             print_error("Нет менеджера статистики!")
             return False
 
-        seconds_until_reset = self.stats_manager._seconds_until_reset()
-        reset_time_formatted = self.stats_manager._format_time_until_reset()
+        seconds_until_reset   = self.stats_manager._seconds_until_reset()
+        reset_time_formatted  = self.stats_manager._format_time_until_reset()
 
         self.logger.info(f"Время до сброса лимитов: {reset_time_formatted}")
         print(f"⏰ Сброс лимитов через: {reset_time_formatted}")
-        print(f"💤 Переход в режим ожидания...")
+        print("💤 Переход в режим ожидания...")
         print("   Нажмите Ctrl+C для завершения\n")
 
         check_interval = 60
@@ -134,7 +177,7 @@ class SessionMixin:
 
         while elapsed < seconds_until_reset:
             remaining = seconds_until_reset - elapsed
-            hours = remaining // 3600
+            hours   = remaining // 3600
             minutes = (remaining % 3600) // 60
 
             if minutes % 10 == 0 or remaining < 600:
@@ -146,7 +189,7 @@ class SessionMixin:
             elapsed += sleep_time
 
         self.logger.info("=" * 70)
-        self.logger.info("СМЕНА СУТОК - ПОВТОРНЫЙ ВХОД")
+        self.logger.info("СМЕНА СУТОК — ПОВТОРНЫЙ ВХОД")
         self.logger.info("=" * 70)
         print_success("\n✅ Смена суток! Повторный вход в аккаунт...")
 
@@ -170,7 +213,7 @@ class SessionMixin:
             return False
 
         self.failed_cycles_count = 0
-        self.logger.info("Счетчик неудачных циклов сброшен")
+        self.logger.info("Счётчик неудачных циклов сброшен")
 
         self.logger.info("=" * 70)
         self.logger.info("✅ СИСТЕМА ПОЛНОСТЬЮ ПЕРЕЗАПУЩЕНА")
