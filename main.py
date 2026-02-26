@@ -141,9 +141,9 @@ class MangaBuffApp:
             self.logger.info("Пропуск загрузки инвентаря (--skip_inventory)")
             return []
         
-        self.logger.info(f"Загрузка инвентаря пользователя {self.args.user_id}...")
-        print(f"📦 Загрузка инвентаря пользователя {self.args.user_id}...")
-        inventory = get_user_inventory(self.session, self.args.user_id)
+        print(f"   🔍 Фильтрация: только ранги E, D, C | без заблокированных карт")
+        inventory = get_user_inventory(self.session, self.args.user_id)  # уже отфильтрован
+        print_success(f"После фильтрации: {len(inventory)} карточек")
         
         self.logger.info(f"Загружено карточек: {len(inventory)}")
         print_success(f"Всего загружено: {len(inventory)} карточек")

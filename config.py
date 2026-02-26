@@ -5,7 +5,7 @@ BASE_URL = "https://mangabuff.ru"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0"
 
 # Настройки прокси
-PROXY_ENABLED = True
+PROXY_ENABLED = False
 PROXY_URL = "socks5://PrsRUS1HZZ1GZ:LTWg4yWH@62.233.39.89:1080"
 
 # Настройки пагинации
@@ -25,7 +25,7 @@ WANTS_LAST_PAGE_ESTIMATE = 30
 REQUEST_TIMEOUT = (10, 20)
 
 # Rate Limiting
-RATE_LIMIT_PER_MINUTE = 66
+RATE_LIMIT_PER_MINUTE = 70
 RATE_LIMIT_RETRY_DELAY = 15
 RATE_LIMIT_WINDOW = 60
 

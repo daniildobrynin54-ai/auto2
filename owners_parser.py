@@ -133,7 +133,7 @@ class OwnersParser:
 class OwnersProcessor:
     """Процессор для обработки владельцев с НЕМЕДЛЕННЫМ ПРЕРЫВАНИЕМ."""
     
-    MAX_RETRY_ATTEMPTS = 3
+    MAX_RETRY_ATTEMPTS = 2
     
     def __init__(
         self,
