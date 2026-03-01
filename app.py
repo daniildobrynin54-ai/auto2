@@ -89,9 +89,18 @@ class MangaBuffApp(SessionMixin, ProcessingMixin):
             print_warning("URL буста не указан")
             return False
 
+        extra = getattr(self.args, 'extra_donations', 0)
+
         self.logger.info("Инициализация менеджера статистики...")
         print("📊 Инициализация менеджера статистики...")
-        self.stats_manager = create_stats_manager(self.session, self.args.boost_url)
+        self.stats_manager = create_stats_manager(
+            self.session,
+            self.args.boost_url,
+            extra_donations=extra
+        )
+        if extra > 0:
+            self.logger.info(f"Дополнительные вклады: +{extra} сверх лимита сайта")
+            print(f"➕ Дополнительные вклады: +{extra} сверх лимита сайта")
         self.stats_manager.print_stats(force_refresh=True)
         return True
 
@@ -230,14 +239,12 @@ class MangaBuffApp(SessionMixin, ProcessingMixin):
         self.logger.info(f"Запуск монитора буста для карты ID: {boost_card['card_id']}...")
         print(f"🔔 Запуск монитора буста (card_id={boost_card['card_id']})...")
 
-        # ИСПРАВЛЕНИЕ: передаём current_card_id сразу в start_boost_monitor,
-        # чтобы устранить гонку между стартом потока и установкой ID
         self.monitor = start_boost_monitor(
             self.session,
             self.args.boost_url,
             self.stats_manager,
             self.output_dir,
-            current_card_id=boost_card['card_id']  # ← передаём ДО старта потока
+            current_card_id=boost_card['card_id']
         )
         self.logger.info(f"Монитор запущен для карты ID: {boost_card['card_id']}")
 

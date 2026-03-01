@@ -25,6 +25,11 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--debug", action="store_true", help="Отладка")
 
     parser.add_argument(
+        "--extra_donations", type=int, default=0, metavar="N",
+        help="Дополнительные вклады сверх лимита сайта (например, --extra_donations 10)"
+    )
+
+    parser.add_argument(
         "--log_level", default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Уровень логирования"
@@ -57,9 +62,14 @@ def main():
     logger.info("=" * 70)
     logger.info(f"Уровень логирования: {args.log_level}")
     logger.info(f"Debug mode: {args.debug} | Dry run: {args.dry_run}")
+    if args.extra_donations:
+        logger.info(f"Дополнительные вклады: +{args.extra_donations} сверх лимита сайта")
 
     if args.debug:
         print("🔧 DEBUG MODE ENABLED")
+
+    if args.extra_donations > 0:
+        print(f"➕ Дополнительные вклады: +{args.extra_donations} сверх лимита сайта")
 
     app = MangaBuffApp(args)
 

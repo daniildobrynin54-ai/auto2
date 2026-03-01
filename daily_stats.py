@@ -16,16 +16,18 @@ from config import (
 class DailyStatsManager:
     """Менеджер дневной статистики с учетом MSK и сброса лимитов."""
     
-    def __init__(self, session: requests.Session, boost_url: str):
+    def __init__(self, session: requests.Session, boost_url: str, extra_donations: int = 0):
         """
         Инициализация менеджера статистики.
         
         Args:
             session: Сессия requests
             boost_url: URL страницы буста клуба
+            extra_donations: Дополнительные вклады сверх лимита сайта
         """
         self.session = session
         self.boost_url = boost_url
+        self.extra_donations = max(0, extra_donations)  # защита от отрицательных значений
         self._cached_stats = None
         self._last_refresh = None
     
@@ -125,13 +127,18 @@ class DailyStatsManager:
             else:
                 donations_used = 0
                 donations_max = MAX_DAILY_DONATIONS
+
+            # Прибавляем дополнительные вклады к максимуму
+            effective_donations_max = donations_max + self.extra_donations
             
             stats = {
                 "donations_used": donations_used,
-                "donations_max": donations_max,
+                "donations_max": donations_max,                    # лимит сайта (без надбавки)
+                "donations_max_effective": effective_donations_max, # реальный лимит с надбавкой
+                "extra_donations": self.extra_donations,
                 "replacements_used": replacements_used,
                 "replacements_max": replacements_max,
-                "donations_left": donations_max - donations_used,
+                "donations_left": effective_donations_max - donations_used,
                 "replacements_left": replacements_max - replacements_used,
                 "time_until_reset": self._seconds_until_reset(),
                 "reset_time_formatted": self._format_time_until_reset()
@@ -154,12 +161,15 @@ class DailyStatsManager:
             stats = self.fetch_stats_from_page()
             
             if stats is None:
+                effective_max = MAX_DAILY_DONATIONS + self.extra_donations
                 return {
                     "donations_used": 0,
                     "donations_max": MAX_DAILY_DONATIONS,
+                    "donations_max_effective": effective_max,
+                    "extra_donations": self.extra_donations,
                     "replacements_used": 0,
                     "replacements_max": MAX_DAILY_REPLACEMENTS,
-                    "donations_left": MAX_DAILY_DONATIONS,
+                    "donations_left": effective_max,
                     "replacements_left": MAX_DAILY_REPLACEMENTS,
                     "time_until_reset": self._seconds_until_reset(),
                     "reset_time_formatted": self._format_time_until_reset()
@@ -177,6 +187,8 @@ class DailyStatsManager:
     def can_donate(self, force_refresh: bool = True) -> bool:
         """
         Проверяет, можно ли пожертвовать карту.
+        
+        Учитывает extra_donations сверх лимита сайта.
         
         Args:
             force_refresh: Обновить данные с сервера
@@ -201,7 +213,7 @@ class DailyStatsManager:
         return stats["replacements_left"] > 0
     
     def get_donations_left(self, force_refresh: bool = False) -> int:
-        """Возвращает оставшееся количество пожертвований."""
+        """Возвращает оставшееся количество пожертвований (с учётом надбавки)."""
         stats = self.get_stats(force_refresh=force_refresh)
         return stats["donations_left"]
     
@@ -217,7 +229,18 @@ class DailyStatsManager:
         msk_time = self._get_msk_time().strftime('%H:%M:%S MSK')
         
         print(f"\n📊 Дневная статистика ({msk_time}):")
-        print(f"   Пожертвовано: {stats['donations_used']}/{stats['donations_max']}")
+
+        # Показываем лимит сайта + надбавку, если она есть
+        if self.extra_donations > 0:
+            print(
+                f"   Пожертвовано: {stats['donations_used']}"
+                f"/{stats['donations_max']} (сайт)"
+                f" + {self.extra_donations} доп."
+                f" = {stats['donations_max_effective']} (эффективный лимит)"
+            )
+        else:
+            print(f"   Пожертвовано: {stats['donations_used']}/{stats['donations_max']}")
+
         print(f"   Замен карты: {stats['replacements_used']}/{stats['replacements_max']}")
         print(f"   Осталось пожертвований: {stats['donations_left']}")
         print(f"   Осталось замен: {stats['replacements_left']}")
@@ -229,7 +252,7 @@ class DailyStatsManager:
     
     def can_work(self, force_refresh: bool = True) -> bool:
         """
-        🔧 НОВОЕ: Проверяет, может ли бот работать (есть ли хотя бы один доступный лимит).
+        Проверяет, может ли бот работать (есть ли хотя бы один доступный лимит).
         
         Returns:
             True если можно вкладывать карты ИЛИ заменять карты
@@ -239,7 +262,8 @@ class DailyStatsManager:
 
 def create_stats_manager(
     session: requests.Session,
-    boost_url: str
+    boost_url: str,
+    extra_donations: int = 0
 ) -> DailyStatsManager:
     """Фабричная функция для создания менеджера статистики."""
-    return DailyStatsManager(session, boost_url)
+    return DailyStatsManager(session, boost_url, extra_donations=extra_donations)
