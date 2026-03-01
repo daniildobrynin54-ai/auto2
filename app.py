@@ -227,14 +227,18 @@ class MangaBuffApp(SessionMixin, ProcessingMixin):
             self.logger.debug("Мониторинг отключен (--enable_monitor не указан)")
             return
 
-        self.logger.info("Запуск монитора буста...")
+        self.logger.info(f"Запуск монитора буста для карты ID: {boost_card['card_id']}...")
+        print(f"🔔 Запуск монитора буста (card_id={boost_card['card_id']})...")
+
+        # ИСПРАВЛЕНИЕ: передаём current_card_id сразу в start_boost_monitor,
+        # чтобы устранить гонку между стартом потока и установкой ID
         self.monitor = start_boost_monitor(
             self.session,
             self.args.boost_url,
             self.stats_manager,
-            self.output_dir
+            self.output_dir,
+            current_card_id=boost_card['card_id']  # ← передаём ДО старта потока
         )
-        self.monitor.current_card_id = boost_card['card_id']
         self.logger.info(f"Монитор запущен для карты ID: {boost_card['card_id']}")
 
     def wait_for_monitor(self):

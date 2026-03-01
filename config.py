@@ -5,7 +5,7 @@ BASE_URL = "https://mangabuff.ru"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0"
 
 # Настройки прокси
-PROXY_ENABLED = True
+PROXY_ENABLED = False
 PROXY_URL = "socks5://PrsRUS1HZZ1GZ:LTWg4yWH@62.233.39.89:1080"
 
 # Настройки пагинации
@@ -49,7 +49,7 @@ TRADE_RANDOM_DELAY_MIN = 0.5
 TRADE_RANDOM_DELAY_MAX = 2.0
 
 # Настройки мониторинга
-MONITOR_CHECK_INTERVAL = 2
+MONITOR_CHECK_INTERVAL = 1
 MONITOR_STATUS_INTERVAL = 30
 
 # Интервал проверки истории обменов (в секундах)

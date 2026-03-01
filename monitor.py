@@ -43,7 +43,7 @@ class BoostMonitor:
         self.monitoring_paused = False
     
     # ========================================================================
-    # 🔧 НОВЫЙ МЕТОД: Проверка необходимости прерывания
+    # Проверка необходимости прерывания
     # ========================================================================
     def should_interrupt(self) -> bool:
         """
@@ -89,6 +89,7 @@ class BoostMonitor:
             response = self.session.get(self.club_url, timeout=REQUEST_TIMEOUT)
             
             if response.status_code != 200:
+                print(f"[MONITOR] get_current_card_id: статус {response.status_code}")
                 return None
             
             soup = BeautifulSoup(response.text, "html.parser")
@@ -97,17 +98,21 @@ class BoostMonitor:
             card_link = soup.select_one('a.button.button--block[href*="/cards/"]')
             
             if not card_link:
+                print(f"[MONITOR] get_current_card_id: card_link не найден на странице")
                 return None
             
             href = card_link.get("href", "")
             match = re.search(r"/cards/(\d+)", href)
             
             if match:
-                return int(match.group(1))
+                card_id = int(match.group(1))
+                return card_id
             
+            print(f"[MONITOR] get_current_card_id: не удалось извлечь ID из href={href}")
             return None
             
         except Exception as e:
+            print(f"[MONITOR] get_current_card_id: исключение: {e}")
             return None
     
     def check_boost_available(self) -> Optional[str]:
@@ -143,11 +148,16 @@ class BoostMonitor:
             Новый card_id если карта изменилась, иначе None
         """
         if not self.current_card_id:
+            print(f"[MONITOR] check_card_changed_lightweight: current_card_id не установлен, пропуск")
             return None
         
         new_card_id = self.get_current_card_id()
         
-        if new_card_id and new_card_id != self.current_card_id:
+        if new_card_id is None:
+            return None
+
+        if new_card_id != self.current_card_id:
+            print(f"[MONITOR] Смена карты обнаружена: {self.current_card_id} -> {new_card_id}")
             return new_card_id
         
         return None
@@ -177,7 +187,7 @@ class BoostMonitor:
         """
         Внесение карты с правильной последовательностью.
         
-        🔧 ИСПРАВЛЕНО: Устанавливаются флаги для немедленного прерывания
+        Устанавливает флаги для немедленного прерывания.
         """
         try:
             # Получаем instance_id (пока обмены активны)
@@ -217,7 +227,7 @@ class BoostMonitor:
             print_success("✅ Карта успешно внесена в клуб!")
             
             # ================================================================
-            # 🔧 КРИТИЧЕСКИ ВАЖНО: Устанавливаем флаги для прерывания!
+            # КРИТИЧЕСКИ ВАЖНО: Устанавливаем флаги для прерывания!
             # ================================================================
             self.boost_available = True  # Буст был внесён
             self.card_changed = True      # Карта изменится
@@ -250,9 +260,6 @@ class BoostMonitor:
                 self._save_boost_card(new_boost_card)
                 self.current_card_id = new_card_id
                 
-                # ============================================================
-                # 🔧 Флаги УЖЕ установлены выше, просто подтверждаем
-                # ============================================================
                 print("🚩 ФЛАГИ ПРЕРЫВАНИЯ УСТАНОВЛЕНЫ:")
                 print(f"   boost_available = {self.boost_available}")
                 print(f"   card_changed = {self.card_changed}")
@@ -278,7 +285,7 @@ class BoostMonitor:
         """
         Обрабатывает изменение карты в клубе без буста.
         
-        🔧 ИСПРАВЛЕНО: Устанавливается флаг для прерывания
+        Устанавливает флаг для прерывания.
         """
         try:
             timestamp = time.strftime('%H:%M:%S')
@@ -287,7 +294,7 @@ class BoostMonitor:
             print(f"   Новая карта ID: {new_card_id}\n")
             
             # ================================================================
-            # 🔧 КРИТИЧЕСКИ ВАЖНО: Устанавливаем флаг для прерывания!
+            # КРИТИЧЕСКИ ВАЖНО: Устанавливаем флаг для прерывания!
             # ================================================================
             self.card_changed = True
             print("🚩 ФЛАГ card_changed = True")
@@ -399,6 +406,7 @@ class BoostMonitor:
     def monitor_loop(self) -> None:
         """Основной цикл мониторинга."""
         print(f"\n🔄 Запущен мониторинг страницы: {self.club_url}")
+        print(f"   Текущий card_id: {self.current_card_id}")
         print(f"   Проверка каждые {MONITOR_CHECK_INTERVAL} секунд...")
         print("   Отслеживание: буст + смена карты в клубе")
         print("   Нажмите Ctrl+C для остановки\n")
@@ -412,14 +420,15 @@ class BoostMonitor:
                 continue
             
             check_count += 1
-            
-            # Легковесная проверка смены карты
+
+            # --- Легковесная проверка смены карты ---
             new_card_id = self.check_card_changed_lightweight()
             if new_card_id:
                 self.handle_card_change_without_boost(new_card_id)
                 time.sleep(MONITOR_CHECK_INTERVAL)
                 continue
             
+            # --- Проверка доступности буста ---
             boost_url = self.check_boost_available()
             
             if boost_url:
@@ -441,7 +450,7 @@ class BoostMonitor:
                 # Только периодический вывод
                 if check_count == 1 or check_count % MONITOR_STATUS_INTERVAL == 0:
                     timestamp = time.strftime('%H:%M:%S')
-                    print(f"[{timestamp}] Проверка #{check_count}: буст не доступен")
+                    print(f"[{timestamp}] Проверка #{check_count}: card_id={self.current_card_id}, буст не доступен")
             
             time.sleep(MONITOR_CHECK_INTERVAL)
     
@@ -472,11 +481,13 @@ class BoostMonitor:
         """Проверяет, запущен ли мониторинг."""
         return self.running
 
+
 def start_boost_monitor(
     session: requests.Session,
     club_url: str,
     stats_manager: DailyStatsManager,
-    output_dir: str = OUTPUT_DIR
+    output_dir: str = OUTPUT_DIR,
+    current_card_id: int = None  # ← НОВЫЙ параметр: устанавливаем ДО start()
 ) -> BoostMonitor:
     """Удобная функция для запуска мониторинга."""
     monitor = BoostMonitor(
@@ -485,5 +496,8 @@ def start_boost_monitor(
         stats_manager,
         output_dir
     )
+    # Устанавливаем current_card_id ДО старта потока — устраняет гонку
+    if current_card_id:
+        monitor.current_card_id = current_card_id
     monitor.start()
     return monitor
