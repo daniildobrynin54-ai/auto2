@@ -11,7 +11,7 @@ from config import (
 from monitor import MONITOR_CHECK_INTERVAL
 from owners_parser import process_owners_page_by_page
 from trade import cancel_all_sent_trades
-from card_replacement import check_and_replace_if_needed, force_replace_card
+from card_replacement import force_replace_card
 from utils import (
     save_json,
     load_json,
@@ -25,6 +25,62 @@ from utils import (
 
 class ProcessingMixin:
     """Миксин с основным циклом обработки и вспомогательными методами."""
+
+    def wait_start_delay(self) -> bool:
+        """
+        Ожидает истечения задержки старта (--start_delay) перед первым циклом обработки.
+        Возвращает False если пользователь прервал ожидание (Ctrl+C).
+        """
+        delay_minutes = getattr(self.args, 'start_delay', 0)
+        if delay_minutes <= 0:
+            return True
+
+        delay_seconds = delay_minutes * 60
+        hours = delay_minutes // 60
+        minutes = delay_minutes % 60
+
+        self.logger.info(
+            f"Задержка старта: {delay_minutes} мин — обмены начнутся через "
+            f"{hours}ч {minutes}м"
+        )
+
+        print_section(
+            f"⏳ ЗАДЕРЖКА СТАРТА: {hours}ч {minutes}м ({delay_minutes} мин)",
+            char="="
+        )
+        print(f"   Мониторинг активен, но обмены НЕ отправляются.")
+        print(f"   Нажмите Ctrl+C для немедленного старта или выхода.\n")
+
+        start_time = time.time()
+        check_interval = 30
+        last_print = 0
+
+        while True:
+            elapsed = time.time() - start_time
+            remaining = delay_seconds - elapsed
+
+            if remaining <= 0:
+                break
+
+            now = time.time()
+            if now - last_print >= check_interval:
+                rem_h = int(remaining) // 3600
+                rem_m = (int(remaining) % 3600) // 60
+                rem_s = int(remaining) % 60
+                self.logger.debug(
+                    f"Ожидание старта: осталось {rem_h}ч {rem_m}м {rem_s}с"
+                )
+                print(
+                    f"⏳ До старта обменов: "
+                    f"{rem_h}ч {rem_m}м {rem_s}с"
+                )
+                last_print = now
+
+            time.sleep(min(1, remaining))
+
+        self.logger.info("✅ Задержка старта истекла — начинаем обработку")
+        print_success("✅ Задержка старта истекла — начинаем обработку владельцев!\n")
+        return True
 
     def wait_for_boost_or_timeout(
         self,
@@ -74,7 +130,7 @@ class ProcessingMixin:
     def attempt_auto_replacement(
         self,
         current_boost_card: dict,
-        reason: str = "АВТОЗАМЕНА ПОСЛЕ 3 НЕУДАЧНЫХ ЦИКЛОВ"
+        reason: str = "АВТОЗАМЕНА ПОСЛЕ 2 НЕУДАЧНЫХ ЦИКЛОВ"
     ) -> Optional[dict]:
         """Попытка принудительной замены карты."""
         self.logger.warning(f"Попытка автозамены карты. Причина: {reason}")
@@ -177,6 +233,12 @@ class ProcessingMixin:
         self.init_processor()
         self.logger.info("Запуск режима обработки владельцев")
 
+        # ── Задержка старта (--start_delay) ─────────────────────────────────
+        if not self.wait_start_delay():
+            self.logger.warning("Задержка старта прервана пользователем")
+            return
+        # ────────────────────────────────────────────────────────────────────
+
         current_boost_card = boost_card
 
         while True:
@@ -208,20 +270,20 @@ class ProcessingMixin:
                 self.failed_cycles_count = 0
                 continue
 
-            # --- Автозамена после 3 неудачных циклов ---
+            # --- Автозамена после 2 неудачных циклов ---
             if self.failed_cycles_count >= self.MAX_FAILED_CYCLES:
                 self.logger.warning(f"Достигнуто {self.MAX_FAILED_CYCLES} неудачных циклов")
                 print_warning(f"\n⚠️  Достигнуто {self.MAX_FAILED_CYCLES} неудачных ПОЛНЫХ циклов!")
 
                 new_card = self.attempt_auto_replacement(
                     current_boost_card,
-                    reason="АВТОЗАМЕНА ПОСЛЕ 3 НЕУДАЧНЫХ ЦИКЛОВ"
+                    reason="АВТОЗАМЕНА ПОСЛЕ 2 НЕУДАЧНЫХ ЦИКЛОВ"
                 )
 
                 if new_card:
                     current_boost_card = new_card
                     save_json(f"{self.output_dir}/{BOOST_CARD_FILE}", new_card)
-                    self.logger.info(f"✅ Новая карта сохранена")
+                    self.logger.info("✅ Новая карта сохранена")
                     print(f"💾 Новая карта ID={new_card['card_id']} сохранена в файл")
 
                     if self.monitor:
@@ -234,32 +296,11 @@ class ProcessingMixin:
                     self.logger.info("Продолжаем работу с текущей картой")
                     print_info("ℹ️  Продолжаем работу с текущей картой")
 
-            # --- Проверка условий автозамены ---
-            self.logger.info("="*70)
-            self.logger.info("ПРОВЕРКА АВТОЗАМЕНЫ В ЦИКЛЕ")
-            self.logger.info(
-                f"Карта: {current_boost_card.get('name')} "
-                f"(ID: {current_boost_card.get('card_id')})"
-            )
-
-            new_card = check_and_replace_if_needed(
-                self.session,
-                self.args.boost_url,
-                current_boost_card,
-                self.stats_manager
-            )
-
-            if new_card:
-                self.logger.info(f"Карта заменена автоматически: {new_card.get('card_id')}")
-                current_boost_card = new_card
-                save_json(f"{self.output_dir}/{BOOST_CARD_FILE}", new_card)
-                print(f"💾 Новая карта ID={new_card['card_id']} сохранена в файл")
-
-                if self.monitor:
-                    self.monitor.current_card_id = new_card['card_id']
-
-                self.processor.reset_state()
-                self.failed_cycles_count = 0
+            # ── Блок check_and_replace_if_needed УДАЛЁН ─────────────────────
+            # Замена теперь только:
+            #   1. При загрузке карты (load_boost_card) — если owners <= 50
+            #   2. После 2 полных циклов без буста (attempt_auto_replacement)
+            # ─────────────────────────────────────────────────────────────────
 
             if self.monitor:
                 self.monitor.card_changed = False
@@ -275,8 +316,6 @@ class ProcessingMixin:
                 self.logger.warning("Лимит вкладов достигнут во время обработки")
                 print_warning("⛔ Лимит вкладов достигнут!")
                 continue
-
-            boost_happened_this_cycle = False
 
             # --- Обработка владельцев ---
             self.logger.info(f"Начало обработки владельцев карты {current_card_id}")
@@ -325,7 +364,6 @@ class ProcessingMixin:
 
             # --- Старая логика card_changed (совместимость) ---
             if self._should_restart():
-                boost_happened_this_cycle = True
                 self.processor.reset_state()
                 self.failed_cycles_count = 0
                 self.logger.info("Буст произошел - перезапуск с новой картой")
@@ -346,7 +384,6 @@ class ProcessingMixin:
                 boost_occurred = self.wait_for_boost_or_timeout(current_card_id)
 
                 if boost_occurred:
-                    boost_happened_this_cycle = True
                     self.processor.reset_state()
                     self.failed_cycles_count = 0
                     self.logger.info("Буст произошел во время ожидания")

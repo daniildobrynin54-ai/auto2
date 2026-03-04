@@ -35,8 +35,8 @@ from app_processing import ProcessingMixin
 class MangaBuffApp(SessionMixin, ProcessingMixin):
     """Главное приложение MangaBuff v2.8.1."""
 
-    MAX_FAILED_CYCLES = 3
-    ALLOWED_RANKS = {"E", "D", "C"}  # Только эти ранги берём в работу
+    MAX_FAILED_CYCLES = 2          # Замена после 2 полных циклов без буста
+    ALLOWED_RANKS = {"E", "D", "C"}
 
     def __init__(self, args):
         self.args = args

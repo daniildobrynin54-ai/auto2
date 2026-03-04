@@ -30,6 +30,16 @@ def create_argument_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--start_delay", type=int, default=0, metavar="MINUTES",
+        help=(
+            "Задержка перед началом отправки обменов в минутах. "
+            "Инициализация, инвентарь и мониторинг запускаются сразу, "
+            "а обработка владельцев начинается только через указанное время. "
+            "Пример: --start_delay 120 (ждать 2 часа)"
+        )
+    )
+
+    parser.add_argument(
         "--log_level", default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Уровень логирования"
@@ -64,12 +74,22 @@ def main():
     logger.info(f"Debug mode: {args.debug} | Dry run: {args.dry_run}")
     if args.extra_donations:
         logger.info(f"Дополнительные вклады: +{args.extra_donations} сверх лимита сайта")
+    if args.start_delay > 0:
+        logger.info(f"Задержка старта: {args.start_delay} мин ({args.start_delay / 60:.1f} ч)")
 
     if args.debug:
         print("🔧 DEBUG MODE ENABLED")
 
     if args.extra_donations > 0:
         print(f"➕ Дополнительные вклады: +{args.extra_donations} сверх лимита сайта")
+
+    if args.start_delay > 0:
+        hours = args.start_delay // 60
+        minutes = args.start_delay % 60
+        if hours > 0:
+            print(f"⏳ Задержка старта обменов: {hours}ч {minutes}м ({args.start_delay} мин)")
+        else:
+            print(f"⏳ Задержка старта обменов: {minutes} мин")
 
     app = MangaBuffApp(args)
 

@@ -25,7 +25,6 @@ class Owner:
     def __init__(self, owner_id: str, name: str, instance_id: Optional[int] = None):
         self.id = owner_id
         self.name = name
-        # instance_id карты у этого владельца — берётся из card_user_id в href
         self.instance_id: Optional[int] = instance_id
 
     def to_dict(self) -> Dict[str, str]:
@@ -39,21 +38,13 @@ class OwnersParser:
         self.session = session
         self.blacklist_manager = get_blacklist_manager()
 
-    # ------------------------------------------------------------------
-    # Извлечение данных из элемента владельца
-    # ------------------------------------------------------------------
-
     def _extract_user_id(self, owner_element) -> Optional[str]:
         href = owner_element.get("href", "")
         match = re.search(r"/users/(\d+)", href)
         return match.group(1) if match else None
 
     def _extract_card_user_id(self, owner_element) -> Optional[int]:
-        """
-        Извлекает instance_id карты из параметра card_user_id в href.
-
-        Пример href: /users/284219?card_user_id=437346806
-        """
+        """Извлекает instance_id карты из параметра card_user_id в href."""
         href = owner_element.get("href", "")
         match = re.search(r"card_user_id=(\d+)", href)
         return int(match.group(1)) if match else None
@@ -63,11 +54,7 @@ class OwnersParser:
         return name_elem.get_text(strip=True) if name_elem else "Неизвестно"
 
     def _is_owner_available(self, owner_element) -> bool:
-        """
-        Проверяет доступность владельца.
-
-        Игнорирует владельцев с замочком, иконкой рукопожатия или оффлайн-статусом.
-        """
+        """Проверяет доступность владельца."""
         owner_classes = owner_element.get("class", [])
 
         if "card-show__owner--online" not in owner_classes:
@@ -88,10 +75,6 @@ class OwnersParser:
             return False
 
         return True
-
-    # ------------------------------------------------------------------
-    # Основной метод парсинга страницы
-    # ------------------------------------------------------------------
 
     def find_owners_on_page(
         self,
@@ -131,7 +114,6 @@ class OwnersParser:
                     continue
 
                 user_name = self._extract_user_name(owner_elem)
-                # Берём instance_id сразу из href — больше не нужен отдельный API-запрос
                 instance_id = self._extract_card_user_id(owner_elem)
 
                 available_owners.append(Owner(user_id, user_name, instance_id))
@@ -192,10 +174,6 @@ class OwnersProcessor:
         if not self.dry_run:
             time.sleep(random.uniform(TRADE_RANDOM_DELAY_MIN, TRADE_RANDOM_DELAY_MAX))
 
-    # ------------------------------------------------------------------
-    # Проверка прерывания от монитора
-    # ------------------------------------------------------------------
-
     def _check_interruption(self, monitor_obj, context: str = "") -> bool:
         if not monitor_obj:
             return False
@@ -210,10 +188,6 @@ class OwnersProcessor:
 
         return False
 
-    # ------------------------------------------------------------------
-    # Обработка одного владельца
-    # ------------------------------------------------------------------
-
     def process_owner_with_retry(
         self,
         owner: Owner,
@@ -225,10 +199,7 @@ class OwnersProcessor:
         monitor_obj=None,
     ) -> tuple[bool, bool]:
         """
-        Обрабатывает владельца с до MAX_RETRY_ATTEMPTS попытками.
-
-        instance_id карты владельца берётся напрямую из owner.instance_id
-        (спарсен из card_user_id в href страницы владельцев) — API-запрос не нужен.
+        Обрабатывает владельца: выбирает 2 карты того же ранга и отправляет обмен.
 
         Returns:
             (успех обмена, нужно прервать обработку)
@@ -236,18 +207,17 @@ class OwnersProcessor:
         if self.blacklist_manager.is_blacklisted(owner.id):
             return False, False
 
-        # Проверка #1: перед началом обработки владельца
         if self._check_interruption(monitor_obj, f"перед владельцем {owner.name}"):
             return False, True
 
         exclude_instances = self.failed_attempts_set.copy()
 
         for attempt in range(1, self.MAX_RETRY_ATTEMPTS + 1):
-            # Проверка #2: перед каждой попыткой
             if self._check_interruption(monitor_obj, f"перед попыткой {attempt}/{self.MAX_RETRY_ATTEMPTS}"):
                 return False, True
 
-            selected_card = self.select_card_func(
+            # --- Выбираем первую карту ---
+            selected_card_1 = self.select_card_func(
                 self.session,
                 boost_card,
                 output_dir,
@@ -255,39 +225,58 @@ class OwnersProcessor:
                 exclude_instances=exclude_instances,
             )
 
-            if not selected_card:
-                msg = "❌ Не удалось подобрать карту" if attempt == 1 else "❌ Карт больше нет"
+            if not selected_card_1:
+                msg = "❌ Не удалось подобрать 1-ю карту" if attempt == 1 else "❌ Карт больше нет"
                 print(f"   [{index}/{total}] {owner.name} → {msg}")
                 return False, False
 
-            card_name = selected_card.get("name", "")
-            wanters = selected_card.get("wanters_count", 0)
-            my_instance_id = selected_card.get("instance_id")
+            my_instance_id_1 = selected_card_1.get("instance_id")
+            card_name_1 = selected_card_1.get("name", "")
+            wanters_1 = selected_card_1.get("wanters_count", 0)
+
+            # --- Выбираем вторую карту того же ранга, исключая первую ---
+            exclude_for_second = exclude_instances | {my_instance_id_1}
+            selected_card_2 = self.select_card_func(
+                self.session,
+                boost_card,
+                output_dir,
+                trade_manager=self.trade_manager,
+                exclude_instances=exclude_for_second,
+            )
+
+            if selected_card_2:
+                my_instance_id_2 = selected_card_2.get("instance_id")
+                card_name_2 = selected_card_2.get("name", "")
+                wanters_2 = selected_card_2.get("wanters_count", 0)
+                my_instance_ids = [my_instance_id_1, my_instance_id_2]
+                cards_info = f"{card_name_1} ({wanters_1}♥) + {card_name_2} ({wanters_2}♥)"
+            else:
+                # Если второй карты нет — отправляем одну
+                my_instance_ids = [my_instance_id_1]
+                cards_info = f"{card_name_1} ({wanters_1}♥) [только 1 карта]"
 
             if attempt == 1:
-                print(f"   [{index}/{total}] {owner.name} → {card_name} ({wanters} желающих)")
+                print(f"   [{index}/{total}] {owner.name} → {cards_info}")
             else:
-                print(f"      Попытка {attempt}/{self.MAX_RETRY_ATTEMPTS}: {card_name} ({wanters} желающих)")
+                print(f"      Попытка {attempt}/{self.MAX_RETRY_ATTEMPTS}: {cards_info}")
 
-            if not self.send_trade_func or not my_instance_id:
+            if not self.send_trade_func or not my_instance_ids:
                 return False, False
 
             self._wait_before_trade()
 
-            # Проверка #3: перед отправкой обмена
             if self._check_interruption(monitor_obj, "перед отправкой обмена"):
                 return False, True
 
-            # instance_id карты у владельца уже известен из страницы — передаём напрямую
             success = self.send_trade_func(
                 session=self.session,
                 owner_id=int(owner.id),
                 owner_name=owner.name,
-                my_instance_id=my_instance_id,
+                my_instance_ids=my_instance_ids,
                 his_card_id=his_card_id,
-                his_instance_id=owner.instance_id,   # ← готовый instance_id
-                my_card_name=card_name,
-                my_wanters=wanters,
+                his_instance_id=owner.instance_id,
+                my_card_names=cards_info,
+                my_wanters=wanters_1,
                 trade_manager=self.trade_manager,
                 dry_run=self.dry_run,
                 debug=self.debug,
@@ -300,19 +289,17 @@ class OwnersProcessor:
                 self.failed_attempts_set.clear()
                 return True, False
             else:
-                self.failed_attempts_set.add(my_instance_id)
-                exclude_instances.add(my_instance_id)
+                # При неудаче блокируем обе карты от повторного выбора
+                for iid in my_instance_ids:
+                    self.failed_attempts_set.add(iid)
+                    exclude_instances.add(iid)
                 if attempt < self.MAX_RETRY_ATTEMPTS:
-                    print(f"      ⚠️  Попытка {attempt} не удалась, пробуем другую карту...")
+                    print(f"      ⚠️  Попытка {attempt} не удалась, пробуем другие карты...")
                     time.sleep(1)
                 else:
                     print(f"      ❌ Все {self.MAX_RETRY_ATTEMPTS} попытки исчерпаны")
 
         return False, False
-
-    # ------------------------------------------------------------------
-    # Постраничная обработка
-    # ------------------------------------------------------------------
 
     def process_page_by_page(
         self,
@@ -339,14 +326,12 @@ class OwnersProcessor:
         print()
 
         while True:
-            # Проверка #1: перед загрузкой каждой страницы
             if self._check_interruption(monitor_obj, f"перед страницей {page}"):
                 return total_processed
 
             owners, has_next = self.parser.find_owners_on_page(card_id, page)
 
             if owners:
-                # Считаем сколько владельцев с уже известным instance_id
                 with_instance = sum(1 for o in owners if o.instance_id is not None)
                 print(
                     f"📊 Страница {page}: найдено владельцев — {len(owners)} "
@@ -354,7 +339,6 @@ class OwnersProcessor:
                 )
 
                 for idx, owner in enumerate(owners, 1):
-                    # Проверка #2: перед каждым владельцем
                     if self._check_interruption(
                         monitor_obj,
                         f"перед владельцем {idx}/{len(owners)} на странице {page}",
@@ -388,7 +372,6 @@ class OwnersProcessor:
                 print(f"   Отправлено обменов: {total_trades_sent}")
                 break
 
-            # Проверка #3: перед переходом на следующую страницу
             if self._check_interruption(
                 monitor_obj,
                 f"перед переходом со страницы {page} на {page + 1}",

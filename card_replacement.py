@@ -14,20 +14,8 @@ from utils import print_section, print_success, print_warning, print_info
 from config import BASE_URL, REQUEST_TIMEOUT
 
 
-# ---------------------------------------------------------------------------
-# Вспомогательная функция: получить текущий card_id со страницы буста
-# ---------------------------------------------------------------------------
-
 def fetch_current_card_id(session: requests.Session, boost_url: str) -> Optional[int]:
-    """
-    Лёгкий запрос к странице буста — возвращает только card_id текущей карты.
-
-    Используется для проверки перед заменой: убедиться что карта
-    не была сменена кем-то другим пока скрипт работал.
-
-    Returns:
-        card_id (int) или None при ошибке
-    """
+    """Лёгкий запрос к странице буста — возвращает только card_id текущей карты."""
     if not boost_url.startswith("http"):
         boost_url = f"{BASE_URL}{boost_url}"
 
@@ -48,10 +36,6 @@ def fetch_current_card_id(session: requests.Session, boost_url: str) -> Optional
         return None
 
 
-# ---------------------------------------------------------------------------
-# Менеджер замены карт
-# ---------------------------------------------------------------------------
-
 class CardReplacementManager:
     """Менеджер автоматической замены карт."""
 
@@ -65,13 +49,12 @@ class CardReplacementManager:
         self.boost_url = boost_url
         self.stats_manager = stats_manager
 
-    # ------------------------------------------------------------------
-    # Условия замены
-    # ------------------------------------------------------------------
-
     def should_replace_card(self, boost_card: dict) -> bool:
-        """Проверяет нужно ли заменить карту по условиям владельцев/желающих."""
-        owners_count  = boost_card.get("owners_count", 0)
+        """
+        Проверяет нужно ли заменить карту.
+        Замена происходит только если владельцев <= 50.
+        """
+        owners_count = boost_card.get("owners_count", 0)
         wanters_count = boost_card.get("wanters_count", 0)
 
         print_section("🔍 ПРОВЕРКА УСЛОВИЙ АВТОЗАМЕНЫ", char="-")
@@ -86,43 +69,12 @@ class CardReplacementManager:
             print("-" * 60 + "\n")
             return False
 
-        # Условие 1: 0–108 владельцев → всегда замена
-        if 0 < owners_count <= 108:
-            print_warning(f"✅ ЗАМЕНА! Владельцев {owners_count} <= 108")
+        if owners_count <= 50:
+            print_warning(f"✅ ЗАМЕНА! Владельцев {owners_count} <= 50")
             print("-" * 60 + "\n")
             return True
 
-        # Условие 2: 109–216 владельцев при 121+ желающих
-        if 109 <= owners_count <= 216:
-            if wanters_count >= 121:
-                print_warning(f"✅ ЗАМЕНА! Владельцев {owners_count}, желающих {wanters_count} >= 121")
-                print("-" * 60 + "\n")
-                return True
-            print_info(f"❌ НЕТ ЗАМЕНЫ. Желающих {wanters_count} < 121")
-            print("-" * 60 + "\n")
-            return False
-
-        # Условие 3: 217–360 владельцев при 181+ желающих
-        if 217 <= owners_count <= 360:
-            if wanters_count >= 181:
-                print_warning(f"✅ ЗАМЕНА! Владельцев {owners_count}, желающих {wanters_count} >= 181")
-                print("-" * 60 + "\n")
-                return True
-            print_info(f"❌ НЕТ ЗАМЕНЫ. Желающих {wanters_count} < 181")
-            print("-" * 60 + "\n")
-            return False
-
-        # Условие 4: 361–540 владельцев при 300+ желающих
-        if 361 <= owners_count <= 540:
-            if wanters_count >= 300:
-                print_warning(f"✅ ЗАМЕНА! Владельцев {owners_count}, желающих {wanters_count} >= 300")
-                print("-" * 60 + "\n")
-                return True
-            print_info(f"❌ НЕТ ЗАМЕНЫ. Желающих {wanters_count} < 300")
-            print("-" * 60 + "\n")
-            return False
-
-        print_info(f"❌ НЕТ ЗАМЕНЫ. Владельцев {owners_count} > 540")
+        print_info(f"❌ НЕТ ЗАМЕНЫ. Владельцев {owners_count} > 50")
         print("-" * 60 + "\n")
         return False
 
@@ -134,19 +86,8 @@ class CardReplacementManager:
             return False
         return True
 
-    # ------------------------------------------------------------------
-    # Ключевая проверка: карта на странице == карта в boost_card?
-    # ------------------------------------------------------------------
-
     def _verify_card_not_changed(self, boost_card: dict) -> tuple[bool, Optional[dict]]:
-        """
-        Проверяет что карта на странице буста не сменилась сторонним образом.
-
-        Делает лёгкий запрос и сравнивает card_id.
-
-        Returns:
-            (карта актуальна, новая карта если сменилась или None)
-        """
+        """Проверяет что карта на странице буста не сменилась сторонним образом."""
         expected_id = boost_card.get("card_id")
 
         print(f"🔎 Проверка актуальности карты перед заменой...")
@@ -155,7 +96,6 @@ class CardReplacementManager:
         current_id = fetch_current_card_id(self.session, self.boost_url)
 
         if current_id is None:
-            # Не удалось получить — действуем осторожно, не заменяем
             print_warning("   ⚠️  Не удалось получить текущий card_id со страницы")
             print_warning("   ⏭️  Пропускаем замену во избежание ошибки")
             return False, None
@@ -174,24 +114,8 @@ class CardReplacementManager:
         print(f"   ✅ Карта актуальна (ID: {current_id})\n")
         return True, None
 
-    # ------------------------------------------------------------------
-    # Общий приватный метод выполнения замены
-    # ------------------------------------------------------------------
-
     def _do_replace(self, boost_card: dict, section_title: str) -> Optional[dict]:
-        """
-        Выполняет замену карты:
-        1. Проверяет лимит
-        2. Проверяет что карта на странице ещё та же
-        3. Отменяет обмены
-        4. Ещё раз проверяет card_id прямо перед отправкой
-        5. Отправляет запрос на замену
-        6. Загружает новую карту
-
-        Returns:
-            Новая карта, уже загруженная карта (если сменили снаружи),
-            или None при ошибке/отмене.
-        """
+        """Выполняет замену карты."""
         print_section(section_title, char="=")
 
         old_id   = boost_card.get("card_id")
@@ -204,36 +128,27 @@ class CardReplacementManager:
         replacements_left = self.stats_manager.get_replacements_left(force_refresh=True)
         print(f"   Замен осталось сегодня: {replacements_left}\n")
 
-        # ── Шаг 1: проверка лимита ──────────────────────────────────────
         if not self.can_replace():
             return None
 
-        # ── Шаг 2: первичная проверка card_id ───────────────────────────
         card_ok, externally_changed = self._verify_card_not_changed(boost_card)
         if not card_ok:
-            # Карту уже сменили снаружи — возвращаем новую без замены
             return externally_changed
 
-        # ── Шаг 3: отмена обменов ───────────────────────────────────────
         print("1️⃣  Отменяем все отправленные обмены...")
         cancel_all_sent_trades(self.session, debug=False)
         time.sleep(1)
 
-        # ── Шаг 4: повторная проверка card_id прямо перед запросом ──────
-        #    За время отмены обменов карту могут успеть сменить снаружи
         print("2️⃣  Повторная проверка card_id перед отправкой запроса...")
         card_ok, externally_changed = self._verify_card_not_changed(boost_card)
         if not card_ok:
             return externally_changed
 
-        # ── Шаг 5: проверяем лимит ещё раз (мог измениться за время ────
-        #    отмены обменов)
         if not self.stats_manager.can_replace(force_refresh=True):
             print_warning("⛔ Лимит замен достигнут перед отправкой!")
             print("=" * 60 + "\n")
             return None
 
-        # ── Шаг 6: отправляем запрос на замену ──────────────────────────
         print("3️⃣  Отправляем запрос на замену карты...")
         success = replace_club_card(self.session)
 
@@ -282,12 +197,8 @@ class CardReplacementManager:
         print("=" * 60 + "\n")
         return new_card
 
-    # ------------------------------------------------------------------
-    # Публичные методы
-    # ------------------------------------------------------------------
-
     def perform_replacement(self, boost_card: dict) -> Optional[dict]:
-        """Замена карты С ПРОВЕРКОЙ условий (owners/wanters)."""
+        """Замена карты С ПРОВЕРКОЙ условий (owners <= 50)."""
         if not self.should_replace_card(boost_card):
             return None
         return self._do_replace(boost_card, "🔄 АВТОМАТИЧЕСКАЯ ЗАМЕНА КАРТЫ")
@@ -301,17 +212,13 @@ class CardReplacementManager:
         return self._do_replace(boost_card, f"🔄 {reason.upper()}")
 
 
-# ---------------------------------------------------------------------------
-# Публичные функции-обёртки
-# ---------------------------------------------------------------------------
-
 def check_and_replace_if_needed(
     session: requests.Session,
     boost_url: str,
     boost_card: dict,
     stats_manager: DailyStatsManager,
 ) -> Optional[dict]:
-    """Проверяет карту и заменяет если нужно и возможно."""
+    """Проверяет карту и заменяет если owners <= 50."""
     manager = CardReplacementManager(session, boost_url, stats_manager)
     return manager.perform_replacement(boost_card)
 
