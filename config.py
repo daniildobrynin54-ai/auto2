@@ -5,7 +5,7 @@ BASE_URL = "https://mangabuff.ru"
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0"
 
 # Настройки прокси
-PROXY_ENABLED = False
+PROXY_ENABLED = True
 PROXY_URL = "socks5://PrsRUS1HZZ1GZ:LTWg4yWH@62.233.39.89:1080"
 
 # Настройки пагинации
